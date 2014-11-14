@@ -10,7 +10,10 @@ from ..charts import Chart, PivotChart
 try:
     from django.utils import simplejson
 except ImportError:
-    import json as simplejson
+    import simplejson
+except ImportError:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured('simplejson package is missing')
 
 try:
     CHARTIT_JS_REL_PATH = settings.CHARTIT_JS_REL_PATH
