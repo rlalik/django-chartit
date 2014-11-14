@@ -1,12 +1,16 @@
 from itertools import izip_longest
 
 from django import template
-from django.utils import simplejson
 from django.utils.safestring import mark_safe
 from django.conf import settings
 import posixpath
 
 from ..charts import Chart, PivotChart
+
+try:
+    from django.utils import simplejson
+except ImportError:
+    import json as simplejson
 
 try:
     CHARTIT_JS_REL_PATH = settings.CHARTIT_JS_REL_PATH
