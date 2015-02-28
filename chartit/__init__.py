@@ -2,4 +2,5 @@
 directly from models.
 """
 from .chartdata import PivotDataPool, DataPool
+from .chartrawdata import RawPivotDataPool, RawDataPool
 from .charts import PivotChart, Chart
