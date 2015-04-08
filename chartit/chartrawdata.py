@@ -5,7 +5,7 @@ import copy
 import string
 from chartdata import DataPool, PivotDataPool
 
-from django.db.models.query import RawQuerySet
+from django.db.models.query import RawQuerySet, QuerySet
 from django.db.models import Model
 
 
@@ -74,6 +74,11 @@ class RawDataPool(DataPool):
                 elif isinstance(source, list) and len(source) == len(terms):
                     if fn:
                         source[i] = fn(source[i])
+                elif isinstance(source, QuerySet):
+                    term_source = []
+                    for s in source:
+                        term_source.append(s[ti])
+                    rawqs_source.append(term_source)
                 if names:
                     d_series[ti]['field_alias'] = names[i]
                 else:
@@ -83,6 +88,8 @@ class RawDataPool(DataPool):
                 source = model_source[:]
                 model_source = []
             if isinstance(source, RawQuerySet):
+                source = rawqs_source
+            if isinstance(source, QuerySet):
                 source = rawqs_source
             for i in range(0, len(terms)):
                 ti = terms[i]
