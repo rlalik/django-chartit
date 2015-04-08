@@ -72,6 +72,10 @@ class RawDataPool(DataPool):
                         term_source.append(getattr(s, ti))
                     rawqs_source.append(term_source)
                 elif isinstance(source, list) and len(source) == len(terms):
+                    term_source = []
+                    for s in source:
+                        term_source.append(s[ti])
+                    rawqs_source.append(term_source)
                     if fn:
                         source[i] = fn(source[i])
                 elif isinstance(source, QuerySet):
@@ -90,6 +94,8 @@ class RawDataPool(DataPool):
             if isinstance(source, RawQuerySet):
                 source = rawqs_source
             if isinstance(source, QuerySet):
+                source = rawqs_source
+            if isinstance(source, list):
                 source = rawqs_source
             for i in range(0, len(terms)):
                 ti = terms[i]
