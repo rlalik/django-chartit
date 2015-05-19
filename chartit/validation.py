@@ -1,5 +1,7 @@
 import copy
 
+from collections import OrderedDict
+
 from django.db.models.aggregates import Aggregate
 from django.db.models.base import ModelBase
 from django.db.models.manager import Manager
@@ -117,7 +119,7 @@ def _clean_field_aliases(fa_actual, fa_cat, fa_lgby):
     return fa
 
 def _convert_pdps_to_dict(series_list):
-    series_dict = {}
+    series_dict = OrderedDict()
     for sd in series_list:
         try:
             options = sd['options']
@@ -143,7 +145,7 @@ def _convert_pdps_to_dict(series_list):
                                         "in place of: %s" %tv)
                 opts = copy.deepcopy(options)
                 opts.update(tv)
-                series_dict.update({tk: opts})
+                series_dict[tk] = opts
         else:
             raise APIInputError("Expecting a dict in place of: %s"
                                 %terms)
@@ -204,7 +206,7 @@ def clean_pdps(series):
 
 def _convert_dps_to_dict(series_list):
     series_list = copy.deepcopy(series_list)
-    series_dict = {}
+    series_dict = OrderedDict()
     if not series_list:
         raise APIInputError("'series' cannot be empty.")
     for sd in series_list:
@@ -286,7 +288,7 @@ def clean_dps(series):
     return series
 
 def _convert_pcso_to_dict(series_options):
-    series_options_dict = {}
+    series_options_dict = OrderedDict()
     for stod in series_options:
         try:
             options = stod['options']
@@ -303,7 +305,7 @@ def _convert_pcso_to_dict(series_options):
             for term in terms:
                 if isinstance(term, basestring):
                     opts = copy.deepcopy(options)
-                    series_options_dict.update({term: opts})
+                    series_options_dict[term] = opts
                 elif isinstance(term, dict):
                     for tk, tv in term.items():
                         if not isinstance(tv, dict):
@@ -311,7 +313,7 @@ def _convert_pcso_to_dict(series_options):
                                                 "of: %s" %tv)
                         opts = copy.deepcopy(options)
                         opts.update(tv)
-                        series_options_dict.update({tk: opts})
+                        series_options_dict[tk] = opts
         else:
             raise APIInputError("Expecting a list in place of: %s" %terms)
     return series_options_dict
@@ -342,7 +344,7 @@ def clean_pcso(series_options, ds):
     return series_options
 
 def _convert_cso_to_dict(series_options):
-    series_options_dict = {}
+    series_options_dict = OrderedDict()
     #stod: series term and option dict
     for stod in series_options:
         try:
