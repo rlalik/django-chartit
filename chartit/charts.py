@@ -191,6 +191,8 @@ class Chart(object):
             self.hcoptions['xAxis'] = [xAxis]
         if isinstance(yAxis, dict):
             self.hcoptions['yAxis'] = [yAxis]
+        # set 3d options # FIXME: is this how you want to do it?
+        self.hcoptions['chart']['options3d'] = self.hcoptions['options3d']
         # set renderTo
         if not self.hcoptions['chart']['renderTo']:
             self.hcoptions['chart']['renderTo'] = 'container'
