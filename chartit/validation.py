@@ -1,5 +1,7 @@
 import copy
 
+from collections import OrderedDict
+
 from django.db.models.aggregates import Aggregate
 from django.db.models.base import ModelBase
 from django.db.models.manager import Manager
@@ -10,39 +12,39 @@ from .exceptions import APIInputError
 
 def _validate_field_lookup_term(model, term):
     """Checks whether the term is a valid field_lookup for the model.
-    
+
     **Args**:
-    - **model** (**required**) - a django model for which to check whether 
+    - **model** (**required**) - a django model for which to check whether
       the term is a valid field_lookup.
-    - **term** (**required**) - the term to check whether it is a valid 
+    - **term** (**required**) - the term to check whether it is a valid
       field lookup for the model supplied.
-            
+
     **Returns**:
     -  The verbose name of the field if the supplied term is a valid field.
-    
+
     **Raises**:
-    - APIInputError: If the term supplied is not a valid field lookup 
+    - APIInputError: If the term supplied is not a valid field lookup
       parameter for the model.
     """
     # TODO: Memoization for speed enchancements?
     terms = term.split('__')
     model_fields = model._meta.get_all_field_names()
     if terms[0] not in model_fields:
-        raise APIInputError("Field %r does not exist. Valid lookups are %s." 
+        raise APIInputError("Field %r does not exist. Valid lookups are %s."
                          % (terms[0], ', '.join(model_fields)))
     if len(terms) == 1:
         return model._meta.get_field(terms[0]).verbose_name
     else:
-        # DocString details for model._meta.get_field_by_name  
-        # 
-        # Returns a tuple (field_object, model, direct, m2m), where 
-        #     field_object is the Field instance for the given name, 
-        #     model is the model containing this field (None for 
-        #         local fields), 
-        #     direct is True if the field exists on this model, 
-        #     and m2m is True for many-to-many relations. 
-        # When 'direct' is False, 'field_object' is the corresponding 
-        # RelatedObject for this field (since the field doesn't have 
+        # DocString details for model._meta.get_field_by_name
+        #
+        # Returns a tuple (field_object, model, direct, m2m), where
+        #     field_object is the Field instance for the given name,
+        #     model is the model containing this field (None for
+        #         local fields),
+        #     direct is True if the field exists on this model,
+        #     and m2m is True for many-to-many relations.
+        # When 'direct' is False, 'field_object' is the corresponding
+        # RelatedObject for this field (since the field doesn't have
         # an instance associated with it).
         field_details = model._meta.get_field_by_name(terms[0])
         # if the field is direct field
@@ -50,7 +52,7 @@ def _validate_field_lookup_term(model, term):
             m = field_details[0].related.parent_model
         else:
             m = field_details[0].model
-        
+
         return _validate_field_lookup_term(m, '__'.join(terms[1:]))
 
 def _clean_source(source):
@@ -61,7 +63,7 @@ def _clean_source(source):
     elif isinstance(source, QuerySet):
         return source
     raise APIInputError("'source' must either be a QuerySet, Model or "
-                        "Manager. Got %s of type %s instead."  
+                        "Manager. Got %s of type %s instead."
                         %(source, type(source)))
 
 def _validate_func(func):
@@ -74,8 +76,8 @@ def _clean_categories(categories, source):
         categories = [categories]
     elif isinstance(categories, (tuple, list)):
         if not categories:
-            raise APIInputError("'categories' tuple or list must contain at " 
-                                "least one valid model field. Got %s." 
+            raise APIInputError("'categories' tuple or list must contain at "
+                                "least one valid model field. Got %s."
                                 %categories)
     else:
         raise APIInputError("'categories' must be one of the following "
@@ -110,7 +112,7 @@ def _clean_legend_by(legend_by, source):
 def _validate_top_n_per_cat(top_n_per_cat):
     if not isinstance(top_n_per_cat,  int):
         raise APIInputError("'top_n_per_cat' must be an int. Got %s of type "
-                            "%s instead." 
+                            "%s instead."
                             %(top_n_per_cat, type(top_n_per_cat)))
 
 def _clean_field_aliases(fa_actual, fa_cat, fa_lgby):
@@ -120,7 +122,7 @@ def _clean_field_aliases(fa_actual, fa_cat, fa_lgby):
     return fa
 
 def _convert_pdps_to_dict(series_list):
-    series_dict = {}
+    series_dict = OrderedDict()
     for sd in series_list:
         try:
             options = sd['options']
@@ -128,7 +130,7 @@ def _convert_pdps_to_dict(series_list):
             raise APIInputError("%s is missing the 'options' key." %sd)
         if not isinstance(options, dict):
             raise APIInputError("Expecting a dict in place of: %s" %options)
-        
+
         try:
             terms = sd['terms']
         except KeyError:
@@ -146,13 +148,13 @@ def _convert_pdps_to_dict(series_list):
                                         "in place of: %s" %tv)
                 opts = copy.deepcopy(options)
                 opts.update(tv)
-                series_dict.update({tk: opts})
+                series_dict[tk] = opts
         else:
-            raise APIInputError("Expecting a dict in place of: %s" 
+            raise APIInputError("Expecting a dict in place of: %s"
                                 %terms)
     return series_dict
 
-            
+
 def clean_pdps(series):
     """Clean the PivotDataPool series input from the user.
     """
@@ -198,8 +200,8 @@ def clean_pdps(series):
                 fa_actual = td['field_aliases']
             except KeyError:
                 td['field_aliases'] = fa_actual = {}
-            td['field_aliases'] = _clean_field_aliases(fa_actual, 
-                                                       fa_cat, 
+            td['field_aliases'] = _clean_field_aliases(fa_actual,
+                                                       fa_cat,
                                                        fa_lgby)
     else:
         raise APIInputError("Expecting a dict or list in place of: %s" %series)
@@ -207,7 +209,7 @@ def clean_pdps(series):
 
 def _convert_dps_to_dict(series_list):
     series_list = copy.deepcopy(series_list)
-    series_dict = {}
+    series_dict = OrderedDict()
     if not series_list:
         raise APIInputError("'series' cannot be empty.")
     for sd in series_list:
@@ -217,7 +219,7 @@ def _convert_dps_to_dict(series_list):
             raise APIInputError("%s is missing the 'options' key." %sd)
         if not isinstance(options, dict):
             raise APIInputError("Expecting a dict in place of: %s" %options)
-        
+
         try:
             terms = sd['terms']
         except KeyError:
@@ -235,7 +237,7 @@ def _convert_dps_to_dict(series_list):
                         elif isinstance(tv, dict):
                             opts = copy.deepcopy(options)
                             opts.update(tv)
-                            series_dict[tk] = opts 
+                            series_dict[tk] = opts
                         else:
                             raise APIInputError("Expecting a basestring or "
                                                 "dict in place of: %s" %tv)
@@ -243,8 +245,8 @@ def _convert_dps_to_dict(series_list):
                             t,fn = term
                             opt = copy.deepcopy(options)
                             opt['fn'] = fn
-                            series_dict[t] = opt 
-         
+                            series_dict[t] = opt
+
         elif isinstance(terms, dict):
             for tk, tv in terms.items():
                 if isinstance(tv, basestring):
@@ -254,12 +256,12 @@ def _convert_dps_to_dict(series_list):
                 elif isinstance(tv, dict):
                     opts = copy.deepcopy(options)
                     opts.update(tv)
-                    series_dict[tk] = opts 
+                    series_dict[tk] = opts
                 else:
                     raise APIInputError("Expecting a basestring or dict in "
                                         "place of: %s" %tv)
         else:
-            raise APIInputError("Expecting a list or dict in place of: %s." 
+            raise APIInputError("Expecting a list or dict in place of: %s."
                                 %terms)
     return series_dict
 
@@ -279,7 +281,7 @@ def clean_dps(series):
                    .title()
             # If the user supplied term is not a field name, use it as an alias
             if tk != td['field']:
-                fa = tk 
+                fa = tk
             td.setdefault('field_alias', fa)
     elif isinstance(series, list):
         series = _convert_dps_to_dict(series)
@@ -289,7 +291,7 @@ def clean_dps(series):
     return series
 
 def _convert_pcso_to_dict(series_options):
-    series_options_dict = {}
+    series_options_dict = OrderedDict()
     for stod in series_options:
         try:
             options = stod['options']
@@ -297,7 +299,7 @@ def _convert_pcso_to_dict(series_options):
             raise APIInputError("%s is missing the 'options' key." %stod)
         if not isinstance(options, dict):
             raise APIInputError("Expecting a dict in place of: %s" %options)
-        
+
         try:
             terms = stod['terms']
         except KeyError:
@@ -306,7 +308,7 @@ def _convert_pcso_to_dict(series_options):
             for term in terms:
                 if isinstance(term, basestring):
                     opts = copy.deepcopy(options)
-                    series_options_dict.update({term: opts})
+                    series_options_dict[term] = opts
                 elif isinstance(term, dict):
                     for tk, tv in term.items():
                         if not isinstance(tv, dict):
@@ -314,7 +316,7 @@ def _convert_pcso_to_dict(series_options):
                                                 "of: %s" %tv)
                         opts = copy.deepcopy(options)
                         opts.update(tv)
-                        series_options_dict.update({tk: opts})
+                        series_options_dict[tk] = opts
         else:
             raise APIInputError("Expecting a list in place of: %s" %terms)
     return series_options_dict
@@ -330,22 +332,22 @@ def clean_pcso(series_options, ds):
                     raise APIInputError("All the series terms must be present "
                                         "in the series dict of the "
                                         "datasource. Got %s. Allowed values "
-                                        "are: %s" 
+                                        "are: %s"
                                         %(sok, ', '.join(ds.series.keys())))
             if not isinstance(sod, dict):
                 raise APIInputError("All the series options must be of the "
-                                    "type dict. Got %s of type %s instead." 
+                                    "type dict. Got %s of type %s instead."
                                     %(sod, type(sod)))
     elif isinstance(series_options, list):
         series_options = _convert_pcso_to_dict(series_options)
         clean_pcso(series_options, ds)
     else:
-        raise APIInputError("Expecting a dict or list in place of: %s." 
+        raise APIInputError("Expecting a dict or list in place of: %s."
                             %series_options)
     return series_options
 
 def _convert_cso_to_dict(series_options):
-    series_options_dict = {}
+    series_options_dict = OrderedDict()
     #stod: series term and option dict
     for stod in series_options:
         try:
@@ -354,12 +356,12 @@ def _convert_cso_to_dict(series_options):
             raise APIInputError("%s is missing the 'options' key." %stod)
         if not isinstance(options, dict):
             raise APIInputError("Expecting a dict in place of: %s" %options)
-        
+
         try:
             terms = stod['terms']
         except KeyError:
             raise APIInputError("%s is missing the 'terms' key." %stod)
-        
+
         if isinstance(terms, dict):
             if not terms:
                 raise APIInputError("'terms' dict cannot be empty.")
@@ -382,10 +384,10 @@ def _convert_cso_to_dict(series_options):
                     raise APIInputError("Expecting a list instead of: %s"
                                         %td)
         else:
-            raise APIInputError("Expecting a dict in place of: %s." 
+            raise APIInputError("Expecting a dict in place of: %s."
                                 %terms)
     return series_options_dict
-                    
+
 def clean_cso(series_options, ds):
     """Clean the Chart series_options input from the user.
     """
@@ -394,18 +396,18 @@ def clean_cso(series_options, ds):
             if sok not in ds.series.keys():
                     raise APIInputError("%s is not one of the keys of the "
                                         "datasource series. Allowed values "
-                                        "are: %s" 
+                                        "are: %s"
                                         %(sok, ', '.join(ds.series.keys())))
             if not isinstance(sod, dict):
-                raise APIInputError("%s is of type: %s. Expecting a dict." 
+                raise APIInputError("%s is of type: %s. Expecting a dict."
                                     %(sod, type(sod)))
             try:
                 _x_axis_term = sod['_x_axis_term']
                 if _x_axis_term not in ds.series.keys():
                     raise APIInputError("%s is not one of the keys of the "
                                         "datasource series. Allowed values "
-                                        "are: %s" 
-                                        %(_x_axis_term, 
+                                        "are: %s"
+                                        %(_x_axis_term,
                                           ', '.join(ds.series.keys())))
             except KeyError:
                 raise APIInputError("Expecting a '_x_axis_term' for %s." %sod)
@@ -418,7 +420,7 @@ def clean_cso(series_options, ds):
         clean_cso(series_options, ds)
     else:
         raise APIInputError("'series_options' must either be a dict or a "
-                            "list. Got %s of type %s instead." 
+                            "list. Got %s of type %s instead."
                             %(series_options, type(series_options)))
     return series_options
 
