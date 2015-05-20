@@ -508,6 +508,8 @@ class PivotChart(object):
             chart_options = HCOptions({})
         self.set_default_hcoptions()
         self.hcoptions.update(chart_options)
+        # set 3d options # FIXME: is this how you want to do it?
+        self.hcoptions['chart']['options3d'] = self.hcoptions['options3d']
         # Now generate the plot
         self.generate_plot()
 
