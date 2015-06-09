@@ -71,7 +71,8 @@ class RawDataPool(DataPool):
                     for s in source:
                         term_source.append(getattr(s, ti))
                     rawqs_source.append(term_source)
-                elif isinstance(source, list) and len(source) == len(terms):
+                #elif isinstance(source, list) and len(source) == len(terms):
+                elif isinstance(source, list):
                     term_source = []
                     for s in source:
                         term_source.append(s[ti])

@@ -294,6 +294,8 @@ class Chart(object):
                         else:
                             sort_key = ((lambda(x, y): x_sortf(x))
                                             if x_sortf is not None else None)
+                            # FIXME : for colum graphs it sorts series here.
+                            # can't we keep initial order?
                             data = sorted(
                                     ((value_dict[x_field],
                                      [value_dict[y_field] for y_field in

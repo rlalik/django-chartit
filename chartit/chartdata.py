@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import copy
 from collections import defaultdict, OrderedDict
 from itertools import groupby, chain, islice
@@ -526,7 +527,7 @@ class PivotDataPool(DataPool):
                                 lv = itemgetter(*legend_by)(vd)
                                 if not isinstance(lv, tuple):
                                     lv = (lv,)
-                                lv = tuple(map(str, lv))
+                                lv = tuple(map(unicode, lv))
                             # If there is nothing to legend by i.e.
                             # legend_by=() then itemgetter raises a TypeError.
                             # Handle it.
