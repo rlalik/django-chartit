@@ -272,14 +272,6 @@ def _convert_dps_to_dict(series_list):
             raise APIInputError("%s is missing the 'terms' key." %sd)
         if isinstance(terms, list):
             for term in terms:
-                if isinstance(term, basestring):
-                    series_dict[term] = copy.deepcopy(options)
-                elif isinstance(term, dict):
-                    for tk, tv in term.items():
-                        if isinstance(tv, basestring):
-            raise APIInputError("%s is missing the 'terms' key." % sd)
-        if isinstance(terms, list):
-            for term in terms:
                 if isinstance(term, six.string_types):
                     series_dict[term] = copy.deepcopy(options)
                 elif isinstance(term, dict):
