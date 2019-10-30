@@ -1,10 +1,20 @@
 # -*- coding: utf-8 -*-
-import copy
+import sys
+import warnings
 from collections import defaultdict, OrderedDict
+from django.db.models.query import RawQuerySet
+from django.core.exceptions import FieldError
 from itertools import groupby, chain, islice
 from operator import itemgetter
-from validation import clean_dps, clean_pdps
-from chartit.validation import clean_sortf_mapf_mts
+from .utils import _getattr
+from .validation import clean_dps, clean_pdps, clean_sortf_mapf_mts
+
+
+# in Python 3 the standard str type is unicode and the
+# unicode type has been removed so define the keyword here
+if sys.version_info.major >= 3:
+    unicode = str
+
 
 class DataPool(object):
     """DataPool holds the data retrieved from various models (tables)."""
@@ -83,9 +93,6 @@ class DataPool(object):
             'terms':[
               {'foo_2': 'foo'}]}]
          """
-        # Save user input to a separate dict. Can be used for debugging.
-        self.user_input = {}
-        self.user_input['series'] = copy.deepcopy(series)
         self.series = clean_dps(series)
         self.query_groups = self._group_terms_by_query()
         # Now get data
@@ -104,15 +111,20 @@ class DataPool(object):
         # TODO: using str(source.query) was the only way that I could think of
         # to compare whether two sources are exactly same. Need to figure out
         # if there is a better way. - PG
-        sort_grp_fn = lambda (tk, td): tuple(chain(unicode(td['source'].query),
-                                              [td[t] for t in addl_grp_terms]))
+        def sort_grp_fn(td_tk):
+            return tuple(chain(str(td_tk[1]['source'].query),
+                               [list(td_tk[1][t]) for t in addl_grp_terms]))
+
+        def sort_by_term_fn(td_tk):
+            return -1 * (abs(td_tk[1][sort_by_term]))
+
         s = sorted(self.series.items(), key=sort_grp_fn)
         # The following groupby will create an iterator which returns
         # <(grp-1, <(tk, td), ...>), (grp-2, <(tk, td), ...>), ...>
         # where sclt is a source, category, legend_by tuple
         qg = groupby(s, sort_grp_fn)
         if sort_by_term is not None:
-            sort_by_fn = lambda (tk, td): -1*(abs(td[sort_by_term]))
+            sort_by_fn = sort_by_term_fn
         else:
             sort_by_fn = None
         qg = [sorted(itr, key=sort_by_fn) for (grp, itr) in qg]
@@ -122,22 +134,32 @@ class DataPool(object):
         # query_groups is a list of lists.
         for tk_td_tuples in self.query_groups:
             src = tk_td_tuples[0][1]['source']
-            vqs = src.values(*(td['field'] for (tk, td) in tk_td_tuples))
+            try:
+                # RawQuerySet doesn't support values
+                if isinstance(src, RawQuerySet):
+                    vqs = src
+                else:
+                    vqs = src.values(*(td['field']
+                                       for (tk, td) in tk_td_tuples))
+            except FieldError:
+                # model attributes can't be resolved into fields
+                vqs = src
             vqs2 = []
             for v in vqs:
-                for (tk, td) in tk_td_tuples:
+                for (_, td) in tk_td_tuples:
                     f = td.get('fn')
-                    if(f):
-                        v[td['field']] = f(v[td['field']])
+                    if f:
+                        v[td['field']] = f(_getattr(v, td['field']))
                 vqs2.append(v)
             yield tk_td_tuples, vqs2
 
     def _get_data(self):
         for tk_td_tuples, vqs in self._generate_vqs():
             vqs_list = list(vqs)
-            for tk, td in tk_td_tuples:
+            for tk, _ in tk_td_tuples:
                 # everything has a reference to the same list
                 self.series[tk]['_data'] = vqs_list
+
 
 class PivotDataPool(DataPool):
     """PivotDataPool holds the data retrieved from various tables (models) and
@@ -386,21 +408,20 @@ class PivotDataPool(DataPool):
             'terms': {
               'asia_avg_temp': Avg('temperature')}}]
         """
-        # Save user input to a separate dict. Can be used for debugging.
-        self.user_input = locals()
-        self.user_input['series'] = copy.deepcopy(series)
-
+        warnings.warn('PivotDataPool will be deprecated soon.'
+                      ' Use DataPool instead!', DeprecationWarning)
         self.series = clean_pdps(series)
         self.top_n_term = (top_n_term if top_n_term
                            in self.series.keys() else None)
-        self.top_n = (top_n if (self.top_n_term is not None
-                                and isinstance(top_n, int)) else 0)
+        self.top_n = (top_n if (self.top_n_term is not None and
+                                isinstance(top_n, int)) else 0)
         self.pareto_term = (pareto_term if pareto_term in
                             self.series.keys() else None)
         self.sortf, self.mapf, self.mts = clean_sortf_mapf_mts(sortf_mapf_mts)
         # query groups and data
-        self.query_groups = \
-          self._group_terms_by_query('top_n_per_cat','categories','legend_by')
+        self.query_groups = self._group_terms_by_query(
+                                'top_n_per_cat', 'categories', 'legend_by'
+                            )
         self._get_data()
 
     def _generate_vqs(self):
@@ -416,7 +437,7 @@ class PivotDataPool(DataPool):
             qs = td['source']
             categories = td['categories']
             legend_by = td['legend_by']
-            #vqs = values queryset
+            # vqs = values queryset
             values_terms = chain(categories, legend_by)
             vqs = qs.values(*values_terms)
             # NOTE: Order of annotation is important!!!
@@ -474,7 +495,7 @@ class PivotDataPool(DataPool):
                 for cv, g_vqs_by_cv in groupby(vqs, itemgetter(*categories)):
                     if not isinstance(cv, tuple):
                         cv = (cv,)
-                    # cv = tuple(map(str, cv))
+                    cv = tuple(map(unicode, cv))
                     self.cv_raw |= set([cv])
                     # For the first loop (i==0), the queryset is already
                     # pre-sorted by value of the data func alias (for example
@@ -485,7 +506,7 @@ class PivotDataPool(DataPool):
                     # sort order. Don't sort in this case.
                     if i != 0 and td['top_n_per_cat'] != 0:
                         g_vqs_by_cv.sort(key=itemgetter(tk),
-                                         reverse=(td['top_n_per_cat']> 0))
+                                         reverse=(td['top_n_per_cat'] > 0))
                     # g_vqs_by_cv_dfv: Grouped Value QuerySet (grouped by
                     # category and then by datafunc value.
                     # alias = 'population__sum'
@@ -498,12 +519,12 @@ class PivotDataPool(DataPool):
                     # not just 10, 10, 9. A simple list slice will only retain
                     # 10, 10, 9. So it is not useful. An alternative is to
                     # group_by and then slice.
-                    g_vqs_by_cv_dfv = groupby(g_vqs_by_cv,itemgetter(tk))
+                    g_vqs_by_cv_dfv = groupby(g_vqs_by_cv, itemgetter(tk))
                     # Now that this is grouped by datafunc value, slice off
                     # if we only need the top few per each category
                     if td['top_n_per_cat'] != 0:
-                        g_vqs_by_cv_dfv = islice(g_vqs_by_cv_dfv,0,
-                                               abs(td['top_n_per_cat']))
+                        g_vqs_by_cv_dfv = islice(g_vqs_by_cv_dfv, 0,
+                                                 abs(td['top_n_per_cat']))
                     # Now build the result dictionary
                     # dfv = datafunc value
                     # vqs_by_c_dfv =  ValuesQuerySet by cat. and datafunc value
@@ -540,8 +561,8 @@ class PivotDataPool(DataPool):
         # If we only need top n items, remove the other items from self.cv_raw
         if self.top_n_term:
             cum_cv_dfv_items = sorted(_cum_dfv_by_cv.items(),
-                                      key = itemgetter(1),
-                                      reverse = self.top_n > 0)
+                                      key=itemgetter(1),
+                                      reverse=self.top_n > 0)
             cv_dfv_top_n_items = cum_cv_dfv_items[0:abs(self.top_n)]
             self.cv_raw = [cv_dfv[0] for cv_dfv in cv_dfv_top_n_items]
         else:
@@ -549,27 +570,35 @@ class PivotDataPool(DataPool):
         # If we need to pareto, order the category values in pareto order.
         if self.pareto_term:
             pareto_cv_dfv_items = sorted(_pareto_by_cv.items(),
-                                         key = itemgetter(1) ,
-                                         reverse = True)
+                                         key=itemgetter(1),
+                                         reverse=True)
             pareto_cv = [cv_dfv[0] for cv_dfv in pareto_cv_dfv_items]
             if self.top_n_term:
-                self.cv_raw = [cv for cv in pareto_cv if cv in self.cv_raw]
+                self.cv_raw = [_cv for _cv in pareto_cv if cv in self.cv_raw]
             else:
                 self.cv_raw = pareto_cv
 
             if self.mapf is None:
                 self.cv = self.cv_raw
             else:
-                self.cv = [self.mapf(cv) for cv in self.cv_raw]
+                self.cv = [self.mapf(_cv) for _cv in self.cv_raw]
         else:
             # otherwise, order them by sortf if there is one.
-            if self.mapf is None:
+            if not self.cv_raw:
+                # if there isn't any data available just
+                # set self.cv to empty list and return
+                # otherwise we get
+                # ValueError: not enough values to unpack (expected 2, got 0)
+                # from zip(*combined) below
+                self.cv = self.cv_raw
+            elif self.mapf is None:
                 self.cv_raw.sort(key=self.sortf)
                 self.cv = self.cv_raw
             else:
                 if not self.mts:
                     self.cv_raw.sort(key=self.sortf)
-                self.cv = [self.mapf(cv) for cv in self.cv_raw]
+                self.cv = [self.mapf(_cv) for _cv in self.cv_raw]
                 if self.mts:
-                    combined = sorted(zip(self.cv, self.cv_raw),key=self.sortf)
+                    combined = sorted(zip(self.cv, self.cv_raw),
+                                      key=self.sortf)
                     self.cv, self.cv_raw = zip(*combined)

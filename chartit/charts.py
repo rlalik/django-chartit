@@ -1,13 +1,50 @@
+import sys
 import copy
-from collections import defaultdict
-from itertools import groupby, izip
-from collections import OrderedDict
-from highcharts import HCOptions
-from validation import clean_pcso, clean_cso, clean_x_sortf_mapf_mts
-from exceptions import APIInputError
-from chartdata import PivotDataPool, DataPool
+import warnings
+from collections import defaultdict, OrderedDict
+from itertools import groupby
 
-class Chart(object):
+from .utils import _getattr, RecursiveDefaultDict
+from .validation import clean_pcso, clean_cso, clean_x_sortf_mapf_mts
+from .exceptions import APIInputError
+from .chartdata import PivotDataPool, DataPool
+import json
+
+
+# in Python 3 the standard str type is unicode and the
+# unicode type has been removed so define the keyword here
+if sys.version_info.major >= 3:
+    unicode = str
+
+
+class BaseChart(object):
+    """
+        Common ancestor class for all charts to avoid code duplication.
+    """
+    def __init__(self):
+        self.hcoptions = RecursiveDefaultDict({})
+        self.PY2 = sys.version_info.major == 2
+
+    def to_json(self):
+        """Load Chart's data as JSON
+        Useful in Ajax requests. Example:
+
+        Return JSON from this method and response to client::
+
+            return JsonResponse(cht.to_json(), safe=False)
+
+        Then use jQuery load data and create Highchart::
+
+            $(function(){
+            $.getJSON("/data",function(data){
+                $('#container').highcharts(JSON.parse(data));
+                });
+            });
+        """
+        return json.dumps(self.hcoptions)
+
+
+class Chart(BaseChart):
 
     def __init__(self, datasource, series_options, chart_options=None,
                  x_sortf_mapf_mts=None):
@@ -114,11 +151,10 @@ class Chart(object):
           corresponding datasource or if the ``series_options`` cannot be
           parsed.
         """
-
-        self.user_input = locals()
+        super(Chart, self).__init__()
         if not isinstance(datasource, DataPool):
             raise APIInputError("%s must be an instance of DataPool."
-                                %datasource)
+                                % datasource)
         self.datasource = datasource
         self.series_options = clean_cso(series_options, self.datasource)
         self.x_sortf_mapf_mts = clean_x_sortf_mapf_mts(x_sortf_mapf_mts)
@@ -127,36 +163,79 @@ class Chart(object):
         self.generate_plot()
 
     def _groupby_x_axis_and_vqs(self):
-        """Returns a list of list of lists where each list has the term and
-        option dict with the same xAxis and within each list with same xAxis,
-        all items in same sub-list have items with same ValueQuerySet.
+        """
+        Here is an example of what this function would return ::
 
-        Here is an example of what this function would return. ::
-
-        [
-         [[(term-1-A-1, opts-1-A-1), (term-1-A-2, opts-1-A-2), ...],
-          [(term-1-B-1, opts-1-B-1), (term-1-B-2, opts-1-B-2), ...],
-          ...],
-         [[term-2-A-1, opts-2-A-1), (term-2-A-2, opts-2-A-2), ...],
-          [term-2-B-2, opts-2-B-2), (term-2-B-2, opts-2-B-2), ...],
-          ...],
-          ...
-          ]
+            {
+                0: {
+                    0: {'month_seattle': ['seattle_temp']},
+                    1: {'month': ['houston_temp', 'boston_temp']}
+                }
+            }
 
         In the above example,
 
-        - term-1-*-* all have same xAxis.
-        - term-*-A-* all are from same ValueQuerySet (table)
+        - the inner most dict keys ('month' and 'month_seattle') are on the
+          same xAxis (xAxis 0), just groupped in 2 groups (0 and 1)
+        - the inner most list values are from same ValueQuerySet (table)
+
+        If you decide to display multiple chart types with multiple axes
+        then the return value will look like this ::
+
+
+            {
+                0: {
+                    0: {'month': ['boston_temp']}
+                },
+                1: {
+                    0: {'month': ['houston_temp']}
+                }
+            }
+
+        - the outer most 0 and 1 are the numbers of the x axes
+        - the inner most 0 shows that each axis has 1 data group
         """
+        def sort_fn(td_tk):
+            return td_tk[1].get('xAxis', 0)
+
+        def sort2_fn(td_tk):
+            return dss[td_tk[1]['_x_axis_term']]['_data']
+
         dss = self.datasource.series
         x_axis_vqs_groups = defaultdict(dict)
-        sort_fn = lambda (tk, td): td.get('xAxis', 0)
         so = sorted(self.series_options.items(), key=sort_fn)
         x_axis_groups = groupby(so, sort_fn)
         for (x_axis, itr1) in x_axis_groups:
-            sort_fn = lambda (tk, td): dss[td['_x_axis_term']]['_data']
-            itr1 = sorted(itr1, key=sort_fn)
-            for _vqs_num, (_data, itr2) in enumerate(groupby(itr1, sort_fn)):
+            # Python 2 and 3 have different rules for ordering comparisons
+            # https://docs.python.org/3/whatsnew/3.0.html#ordering-comparisons
+            # http://stackoverflow.com/a/3484456
+            #
+            # Here we're trying to sort the iterator based on values in the
+            # _data attribute, which are lists of dicts, holding model data.
+            #
+            # When we try to render charts using sources from two different
+            # models these dicts have different keys and the comparison
+            # list_A < list_B fails with
+            # TypeError: unorderable types: dict() < dict()
+            #
+            # for example try:
+            # [{'a':1}, {'b':2}] < [{'a':1}, {'b':2, 'c':3}]
+            #
+            # This is used in demoproject.chartdemo.multi_table_same_x()!
+            #
+            # At the moment I don't have an idea how to solve this
+            # but disabling the sort seems to work, at least in the demo!
+            #
+            # itr1 is fields which will be plotted on the same xAxis
+            # these fields may be coming from different tables.
+            # The only reason for the sort seems to be groupby below.
+            # groupby() filters the unique values, which is only relevant
+            # if one of the values is repeated, e.g. we want to plot the
+            # same field twice in the same Chart, on the same x axis!
+            # which doesn't seem to be possible !
+            if self.PY2:
+                itr1 = sorted(itr1, key=sort2_fn)
+            for _vqs_num, (_, itr2) in enumerate(groupby(itr1, sort2_fn)):
                 x_axis_vqs_groups[x_axis][_vqs_num] = _x_vqs = {}
                 for tk, td in itr2:
                     _x_vqs.setdefault(td['_x_axis_term'], []).append(tk)
@@ -168,17 +247,17 @@ class Chart(object):
         """
         so = self.series_options
         dss = self.datasource.series
-        self.hcoptions = HCOptions({})
+        self.hcoptions = RecursiveDefaultDict({})
         if chart_options is not None:
             self.hcoptions.update(chart_options)
         self.hcoptions['series'] = []
         # Set title
         title = ''
-        for x_axis_num, vqs_group in self.x_axis_vqs_groups.items():
-            for vqs_num, x_y_terms in  vqs_group.items():
+        for _, vqs_group in self.x_axis_vqs_groups.items():
+            for _, x_y_terms in vqs_group.items():
                 for x_term, y_terms in x_y_terms.items():
                     title += ', '.join([dss[y_term]['field_alias'].title()
-                              for y_term in y_terms])
+                                        for y_term in y_terms])
                     title += ' vs. '
                     title += dss[x_term]['field_alias'].title()
                 title += ' & '
@@ -191,7 +270,7 @@ class Chart(object):
             self.hcoptions['xAxis'] = [xAxis]
         if isinstance(yAxis, dict):
             self.hcoptions['yAxis'] = [yAxis]
-        # set 3d options # FIXME: is this how you want to do it?
+        # set 3d options # JAVIER FIXME: is this how you want to do it?
         self.hcoptions['chart']['options3d'] = self.hcoptions['options3d']
         # set renderTo
         if not self.hcoptions['chart']['renderTo']:
@@ -208,35 +287,36 @@ class Chart(object):
         y_axis_len = len(self.hcoptions['yAxis'])
         if max_x_axis >= x_axis_len:
             self.hcoptions['xAxis']\
-              .extend([HCOptions({})]*(max_x_axis+1-x_axis_len))
+              .extend([RecursiveDefaultDict({})]*(max_x_axis+1-x_axis_len))
         for i, x_axis in enumerate(self.hcoptions['xAxis']):
             if not x_axis['title']['text']:
                 axis_title = set(t[0] for t in term_x_axis if t[1] == i)
                 x_axis['title']['text'] = ' & '.join(axis_title)
         if max_x_axis == 1:
-            if self.hcoptions['xAxis'][1]['opposite'] != False:
+            if self.hcoptions['xAxis'][1]['opposite'] is not False:
                 self.hcoptions['xAxis'][1]['opposite'] = True
 
         if max_y_axis >= y_axis_len:
             self.hcoptions['yAxis']\
-              .extend([HCOptions({})]*(max_y_axis+1-y_axis_len))
+              .extend([RecursiveDefaultDict({})]*(max_y_axis+1-y_axis_len))
         for i, y_axis in enumerate(self.hcoptions['yAxis']):
             if not y_axis['title']['text']:
                 axis_title = set(t[0] for t in term_y_axis if t[1] == i)
                 y_axis['title']['text'] = ' & '.join(axis_title)
         if max_y_axis == 1:
-            if self.hcoptions['yAxis'][1]['opposite'] != False:
+            if self.hcoptions['yAxis'][1]['opposite'] is not False:
                 self.hcoptions['yAxis'][1]['opposite'] = True
 
     def generate_plot(self):
+        # find all x's from different datasources that need to be plotted on
+        # same xAxis and also find their corresponding y's
+        def cht_typ_grp(y_term):
+            return ('scatter' if self.series_options[y_term]['type'] in
+                    ['scatter', 'pie'] else 'line')
+
         # reset the series
         self.hcoptions['series'] = []
         dss = self.datasource.series
-        # find all x's from different datasources that need to be plotted on
-        # same xAxis and also find their corresponding y's
-        cht_typ_grp = lambda y_term: ('scatter' if
-                                      self.series_options[y_term]['type']
-                                      in ['scatter', 'pie'] else 'line')
         for x_axis_num, vqs_groups in self.x_axis_vqs_groups.items():
             y_hco_list = []
             try:
@@ -245,7 +325,7 @@ class Chart(object):
                 x_sortf, x_mapf, x_mts = (None, None, False)
             ptype_x_y_terms = defaultdict(list)
             for vqs_group in vqs_groups.values():
-                x_term, y_terms_all = vqs_group.items()[0]
+                x_term, y_terms_all = tuple(vqs_group.items())[0]
                 y_terms_by_type = defaultdict(list)
                 for y_term in y_terms_all:
                     y_terms_by_type[cht_typ_grp(y_term)].append(y_term)
@@ -268,13 +348,16 @@ class Chart(object):
                     y_fields = [dss[y_term]['field'] for y_term in y_terms]
                     y_aliases = [dss[y_term]['field_alias'] for y_term
                                  in y_terms]
-                    y_types = [self.series_options[y_term].get('type','line')
+                    y_types = [self.series_options[y_term].get('type', 'line')
                                for y_term in y_terms]
-                    y_hco_list = [HCOptions(
+                    y_hco_list = [RecursiveDefaultDict(
                                     copy.deepcopy(
                                         self.series_options[y_term])) for
                                   y_term in y_terms]
-                    for opts, alias, typ in zip(y_hco_list,y_aliases,y_types):
+                    for opts, alias, typ in zip(
+                                                y_hco_list,
+                                                y_aliases,
+                                                y_types):
                         opts.pop('_x_axis_term')
                         opts['name'] = alias
                         opts['type'] = typ
@@ -284,40 +367,38 @@ class Chart(object):
                                               len(x_y_terms_tuples) == 1):
                         if x_mts:
                             if x_mapf:
-                                data = ((x_mapf(value_dict[x_field]),
-                                         [value_dict[y_field] for y_field
-                                          in y_fields])
-                                        for value_dict in x_vqs)
-                                sort_key = ((lambda(x, y): x_sortf(x))
+                                data = ((x_mapf(_getattr(value_obj, x_field)),
+                                         [_getattr(value_obj, y_field)
+                                          for y_field in y_fields])
+                                        for value_obj in x_vqs)
+                                sort_key = ((lambda x_y: x_sortf(x_y[0]))
                                             if x_sortf is not None else None)
                                 data = sorted(data, key=sort_key)
                         else:
-                            sort_key = ((lambda(x, y): x_sortf(x))
-                                            if x_sortf is not None else None)
-                            # FIXME : for colum graphs it sorts series here.
-                            # can't we keep initial order?
+                            sort_key = ((lambda x_y: x_sortf(x_y[1]))
+                                        if x_sortf is not None else None)
                             data = sorted(
-                                    ((value_dict[x_field],
-                                     [value_dict[y_field] for y_field in
-                                      y_fields])
-                                     for value_dict in x_vqs),
+                                    ((_getattr(value_obj, x_field),
+                                     [_getattr(value_obj, y_field)
+                                      for y_field in y_fields])
+                                     for value_obj in x_vqs),
                                     key=sort_key)
                             if x_mapf:
                                 data = [(x_mapf(x), y) for (x, y) in data]
 
                         if ptype == 'scatter':
-                            if self.series_options[y_term]['type']=='scatter':
-                                #scatter plot
+                            if self.series_options[y_term]['type'] == 'scatter': # noqa
+                                # scatter plot
                                 for x_value, y_value_tuple in data:
-                                    for opts, y_value in izip(y_hco_list,
-                                                              y_value_tuple):
+                                    for opts, y_value in zip(y_hco_list,
+                                                             y_value_tuple):
                                         opts['data'].append((x_value, y_value))
                                 self.hcoptions['series'].extend(y_hco_list)
                             else:
                                 # pie chart
                                 for x_value, y_value_tuple in data:
-                                    for opts, y_value in izip(y_hco_list,
-                                                              y_value_tuple):
+                                    for opts, y_value in zip(y_hco_list,
+                                                             y_value_tuple):
                                         opts['data'].append((unicode(x_value),
                                                              y_value))
                                 self.hcoptions['series'].extend(y_hco_list)
@@ -326,23 +407,23 @@ class Chart(object):
                             # all other chart types - line, area, etc.
                             hco_x_axis = self.hcoptions['xAxis']
                             if len(hco_x_axis) - 1 < x_axis_num:
-                                    hco_x_axis.extend([HCOptions({})]*
-                                                      (x_axis_num -
-                                                       (len(hco_x_axis) -
-                                                        1)))
+                                hco_x_axis.extend([RecursiveDefaultDict({})] *
+                                                  (x_axis_num -
+                                                   (len(hco_x_axis) -
+                                                    1)))
                             hco_x_axis[x_axis_num]['categories'] = []
                             for x_value, y_value_tuple in data:
                                 hco_x_axis[x_axis_num]['categories']\
                                   .append(x_value)
-                                for opts, y_value in izip(y_hco_list,
-                                                          y_value_tuple):
+                                for opts, y_value in zip(y_hco_list,
+                                                         y_value_tuple):
                                     opts['data'].append(y_value)
                             self.hcoptions['series'].extend(y_hco_list)
                     else:
-                        data = ((value_dict[x_field],
-                                 [value_dict[y_field] for y_field in
+                        data = ((_getattr(value_obj, x_field),
+                                 [_getattr(value_obj, y_field) for y_field in
                                   y_fields])
-                                for value_dict in x_vqs)
+                                for value_obj in x_vqs)
 
                         y_terms_multi.extend(y_terms)
                         y_fields_multi.extend(y_fields)
@@ -358,30 +439,29 @@ class Chart(object):
                                 cur_y.extend(y_value_tuple)
                             except KeyError:
                                 y_values_multi[x_value] = [None]*ext_len
-                                y_values_multi[x_value]\
-                                  .extend(y_value_tuple)
+                                y_values_multi[x_value].extend(y_value_tuple)
                         for _y_vals in y_values_multi.values():
                             if len(_y_vals) != len_y_terms_multi:
                                 _y_vals.extend([None]*len(y_terms))
                 if y_terms_multi:
                     hco_x_axis = self.hcoptions['xAxis']
                     if len(hco_x_axis) - 1 < x_axis_num:
-                            hco_x_axis\
-                              .extend([HCOptions({})]*
-                                      (x_axis_num - (len(hco_x_axis)-1)))
+                        hco_x_axis.extend([RecursiveDefaultDict({})] *
+                                          (x_axis_num - (len(hco_x_axis)-1)))
                     hco_x_axis[x_axis_num]['categories'] = []
 
                     if x_mts:
                         if x_mapf:
                             data = ((x_mapf(x_value), y_vals) for
                                     (x_value, y_vals) in
-                                    y_values_multi.iteritems())
-                            sort_key = ((lambda(x, y): x_sortf(x)) if x_sortf
-                                        is not None else None)
+                                    y_values_multi.items())
+                            sort_key = ((lambda x_y: x_sortf(x_y[1]))
+                                        if x_sortf is not None
+                                        else None)
                             data = sorted(data, key=sort_key)
                     else:
-                        data = y_values_multi.iteritems()
-                        sort_key = ((lambda(x, y): x_sortf(x)) if x_sortf
+                        data = y_values_multi.items()
+                        sort_key = ((lambda x_y: x_sortf(x_y[1])) if x_sortf
                                     is not None else None)
                         data = sorted(data, key=sort_key)
                         if x_mapf:
@@ -390,12 +470,12 @@ class Chart(object):
                     for x_value, y_vals in data:
                         hco_x_axis[x_axis_num]['categories']\
                           .append(x_value)
-                        for opts, y_value in izip(y_hco_list_multi, y_vals):
+                        for opts, y_value in zip(y_hco_list_multi, y_vals):
                             opts['data'].append(y_value)
                     self.hcoptions['series'].extend(y_hco_list_multi)
 
 
-class PivotChart(object):
+class PivotChart(BaseChart):
 
     def __init__(self, datasource, series_options, chart_options=None):
         """Creates the PivotChart object.
@@ -407,6 +487,7 @@ class PivotChart(object):
 
         - **series_options** (**required**) - specifies the options to plot
           the terms on the chart. It is of the form ::
+
             [{'options': {
                 #any items from HighChart series. For ex.
                 'type': 'column'
@@ -500,31 +581,31 @@ class PivotChart(object):
           corresponding datasource or if the ``series_options`` cannot be
           parsed.
         """
-        self.user_input = locals()
+        warnings.warn('PivotChart will be deprecated soon. Use Chart instead!',
+                      DeprecationWarning)
+        super(PivotChart, self).__init__()
         if not isinstance(datasource, PivotDataPool):
-            raise APIInputError("%s must be an instance of PivotDataPool."
-                                %datasource)
+            raise APIInputError("%s must be an instance of PivotDataPool." %
+                                datasource)
         self.datasource = datasource
         self.series_options = clean_pcso(series_options, self.datasource)
         if chart_options is None:
-            chart_options = HCOptions({})
+            chart_options = RecursiveDefaultDict({})
         self.set_default_hcoptions()
         self.hcoptions.update(chart_options)
-        # set 3d options # FIXME: is this how you want to do it?
-        self.hcoptions['chart']['options3d'] = self.hcoptions['options3d']
         # Now generate the plot
         self.generate_plot()
 
     def set_default_hcoptions(self):
-        self.hcoptions = HCOptions({})
+        self.hcoptions = RecursiveDefaultDict({})
         # series and terms
         dss = self.datasource.series
-        terms = self.series_options.keys()
+        terms = list(self.series_options.keys())
         # legend by
         lgby_dict = dict(((t, dss[t]['legend_by']) for t in terms))
-        lgby_vname_lists= [[dss[t]['field_aliases'].get(lgby, lgby)
+        lgby_vname_lists = [[dss[t]['field_aliases'].get(lgby, lgby)
                             for lgby in lgby_tuple]
-                           for (t, lgby_tuple) in lgby_dict.items()]
+                            for (t, lgby_tuple) in lgby_dict.items()]
         lgby_titles = (':'.join(lgby_vname_list).title() for
                        lgby_vname_list in lgby_vname_lists)
         # chart title
@@ -534,7 +615,7 @@ class PivotChart(object):
             if not lg:
                 title += "%s, " % t
             else:
-                title += "%s (lgnd. by %s), "  %(t, lg)
+                title += "%s (lgnd. by %s), " % (t, lg)
         categories = dss[terms[0]]['categories']
         categories_vnames = [dss[terms[0]]['field_aliases'][c].title()
                              for c in categories]
@@ -550,7 +631,6 @@ class PivotChart(object):
             for lv in dss[term]['_lv_set']:
                 data = [dss[term]['_cv_lv_dfv'][cv].get(lv, None) for cv
                         in cv_raw]
-                #name = '-'.join(dstd['legend_by']) + ":" + "-".join(lv)
                 term_pretty_name = term.replace('_', ' ')
                 name = term_pretty_name.title() if not lv else "-".join(lv)
                 hco = copy.deepcopy(options)
@@ -558,6 +638,5 @@ class PivotChart(object):
                 hco['name'] = name
                 hco_series.append(hco)
         self.hcoptions['series'] = hco_series
-        self.hcoptions['xAxis']['categories'] = [':'.join(map(str, cv)) for cv in
+        self.hcoptions['xAxis']['categories'] = [':'.join(cv) for cv in
                                                  self.datasource.cv]
-
