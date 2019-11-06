@@ -75,6 +75,8 @@ class RawDataPool(DataPool):
                 elif isinstance(source, list):
                     term_source = []
                     for s in source:
+                        if ti not in s:
+                            s[ti] = 0
                         term_source.append(s[ti])
                     rawqs_source.append(term_source)
                     if fn:
