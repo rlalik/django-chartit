@@ -502,14 +502,14 @@ def clean_sortf_mapf_mts(sortf_mapf_mts):
 def clean_x_sortf_mapf_mts(x_sortf_mapf_mts):
     cleaned_x_s_m_mts = []
     if x_sortf_mapf_mts is None:
-        x_sortf_mapf_mts = [(None, None, False)]
+        x_sortf_mapf_mts = [(None, None, False, False)]
     if isinstance(x_sortf_mapf_mts, tuple):
         x_sortf_mapf_mts = [x_sortf_mapf_mts]
     for x_s_m_mts in x_sortf_mapf_mts:
         if not isinstance(x_s_m_mts, tuple):
             raise APIInputError("%r must be a tuple." % x_s_m_mts)
-        if len(x_s_m_mts) != 3:
-            raise APIInputError("%r must have exactly three elements."
+        if len(x_s_m_mts) != 4:
+            raise APIInputError("%r must have exactly four elements."
                                 % x_s_m_mts)
         x_sortf = x_s_m_mts[0]
         if not callable(x_sortf) and x_sortf is not None:
@@ -518,5 +518,6 @@ def clean_x_sortf_mapf_mts(x_sortf_mapf_mts):
         if not callable(x_mapf) and x_mapf is not None:
             raise APIInputError("%r must be callable or None." % x_mapf)
         x_mts = bool(x_s_m_mts[2])
-        cleaned_x_s_m_mts.append((x_sortf, x_mapf, x_mts))
+        dont_sort = bool(x_s_m_mts[3])
+        cleaned_x_s_m_mts.append((x_sortf, x_mapf, x_mts, dont_sort))
     return cleaned_x_s_m_mts

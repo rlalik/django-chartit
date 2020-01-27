@@ -320,9 +320,9 @@ class Chart(BaseChart):
         for x_axis_num, vqs_groups in self.x_axis_vqs_groups.items():
             y_hco_list = []
             try:
-                x_sortf, x_mapf, x_mts = self.x_sortf_mapf_mts[x_axis_num]
+                x_sortf, x_mapf, x_mts, dont_sort = self.x_sortf_mapf_mts[x_axis_num]
             except IndexError:
-                x_sortf, x_mapf, x_mts = (None, None, False)
+                x_sortf, x_mapf, x_mts, dont_sort = (None, None, False, False)
             ptype_x_y_terms = defaultdict(list)
             for vqs_group in vqs_groups.values():
                 x_term, y_terms_all = tuple(vqs_group.items())[0]
@@ -375,14 +375,20 @@ class Chart(BaseChart):
                                             if x_sortf is not None else None)
                                 data = sorted(data, key=sort_key)
                         else:
-                            sort_key = ((lambda x_y: x_sortf(x_y[1]))
-                                        if x_sortf is not None else None)
-                            data = sorted(
-                                    ((_getattr(value_obj, x_field),
-                                     [_getattr(value_obj, y_field)
-                                      for y_field in y_fields])
-                                     for value_obj in x_vqs),
-                                    key=sort_key)
+                            if dont_sort:
+                                data = ((_getattr(value_obj, x_field),
+                                         [_getattr(value_obj, y_field)
+                                          for y_field in y_fields])
+                                         for value_obj in x_vqs)
+                            else:
+                                sort_key = ((lambda x_y: x_sortf(x_y[1]))
+                                            if x_sortf is not None else None)
+                                data = sorted(
+                                        ((_getattr(value_obj, x_field),
+                                         [_getattr(value_obj, y_field)
+                                          for y_field in y_fields])
+                                         for value_obj in x_vqs),
+                                        key=sort_key)
                             if x_mapf:
                                 data = [(x_mapf(x), y) for (x, y) in data]
 
