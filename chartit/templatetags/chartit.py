@@ -80,8 +80,11 @@ def load_charts(chart_list=None, render_to=''):
             chart_list = [chart_list]
         chart_list = [c.hcoptions for c in chart_list]
         render_to_list = [s.strip() for s in render_to.split(',')]
+
         for hco, render_to in six.moves.zip_longest(
                 chart_list, render_to_list):
+            if hco is None:
+                break
             if render_to:
                 hco['chart']['renderTo'] = render_to
         embed_script = (embed_script % (json.dumps(chart_list,
