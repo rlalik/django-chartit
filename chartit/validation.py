@@ -10,7 +10,7 @@ from django.db.models.base import ModelBase
 from django.db.models.manager import Manager
 from django.db.models.query import QuerySet, RawQuerySet
 from django.db.models.sql.query import RawQuery
-from django.utils import six
+import six
 
 from .exceptions import APIInputError
 

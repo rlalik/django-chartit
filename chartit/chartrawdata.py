@@ -3,7 +3,7 @@
 
 import copy
 import string
-from chartdata import DataPool, PivotDataPool
+from chartit.chartdata import DataPool, PivotDataPool
 
 from django.db.models.query import RawQuerySet, QuerySet
 from django.db.models import Model
